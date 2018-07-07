@@ -91,10 +91,13 @@ class LocalBase(lib.RunConfig):
         baseVersion = versions.Version(baseVersion).baseVersion
     #else: # otherwise expect that the baseVersion specified is correct
     baseVersExec = os.path.join(self.versionsDir, "Base%s"%baseVersion, self._exec_name)
+    print(baseVersExec)
+    print(os.path.isfile(baseVersExec))
+    print(self.versionMap().keys())
     if os.path.isfile(baseVersExec):
         return baseVersExec # if baseVersion in Versions subdir is valid, it is the correct executable
     raise sc_process.SC2LaunchError("Specified baseVersion %s does not exist at %s.%s    available: %s"%(\
-        baseVersion, baseVersExec, os.linesep, " ".join(sorted(self.versionMap().keys())) ))
+        str(baseVersion), baseVersExec, os.linesep, " ".join(sorted(self.versionMap().keys())) ))
   ##############################################################################
   def listVersions(self):
       ret = []
@@ -166,7 +169,7 @@ class Linux(LocalBase):
     env["LD_LIBRARY_PATH"] = ":".join(filter(None, [
         os.environ.get("LD_LIBRARY_PATH"),
         os.path.join(base_dir, "Libs/")]))
-    super(Linux, self).__init__(base_dir, "SC2_x64", env=env)
+    super(Linux, self).__init__(base_dir, "SC2_x64.exe", env=env)
   ##############################################################################
   @classmethod
   def priority(cls):

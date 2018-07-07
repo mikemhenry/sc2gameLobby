@@ -87,9 +87,9 @@ class Config(object):
         fogDisabled=False, stepSize=0, opponents=[], fullscreen=True,
         raw=False, score=False, feature=False, render=False,
         replay=None, debug=False,
-            #connects=[], 
+            #connects=[],
             #state=c.GAME_INIT,
-            #agentRaces=[], bots=[], 
+            #agentRaces=[], bots=[],
     ):
         self._gotPorts  = False # ensure that ports are only returned if they were retrieved on this machine
         # flexible settings auto-determination
@@ -117,7 +117,7 @@ class Config(object):
         self.ladderMsg  = ""
         # in-game behavior
         self.fogDisabled= fogDisabled
-        self.stepSize   = int(stepSize)      
+        self.stepSize   = int(stepSize)
         self.opponents  = opponents # names of specific opponents
         self.fullscreen = fullscreen
         # observation data content
@@ -344,7 +344,7 @@ class Config(object):
                 ret[k] = newPs
                 continue
             elif k == "mode"   and self.mode:   v = v.type
-            #elif k == "state":              
+            #elif k == "state":
             elif k == "themap" and self.themap: v = v.name
             ret[k] = v
         return ret
@@ -367,6 +367,9 @@ class Config(object):
         app = self.installedApp
         # TODO -- launch host in window minimized mode
         vers = self.getVersion()
+        os.chdir("/run/media/doryx/Storage/lutris_games/starcraft-ii/drive_c/Program Files (x86)/StarCraft II/Support64")
+        print("this is my cwd")
+        print(os.getcwd())
         proc = app.start(version=vers,#game_version=vers.baseVersion, data_version=vers.dataHash,
             port=self.getPorts()[0], full_screen=fullScreen, verbose=self.debug, **kwargs)
         return proc
@@ -445,7 +448,7 @@ class Config(object):
         return self.version
     ############################################################################
     def getIPaddresses(self):
-        """identify the IP addresses where this process client will launch the SC2 client""" 
+        """identify the IP addresses where this process client will launch the SC2 client"""
         if not self.ipAddress:
             self.ipAddress = ipAddresses.getAll() # update with IP address
         return self.ipAddress

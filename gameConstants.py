@@ -6,6 +6,7 @@ from __future__ import print_function # python 2/3 compatibility
 import os
 
 from sc2common.constants import *
+from sc2common import types
 
 ################################################################################
 class TimeoutExceeded(Exception): pass
@@ -27,5 +28,6 @@ FOLDER_IGNORED_MAPS     = ["Melee", "mini_games", "Test"]
 # misc
 MIN_REQUIRED_PLAYERS    = 2   # players
 DEFAULT_TIMEOUT         = 120 # seconds
+REPLAY_SAVE_FREQUENCY   = 10  # seconds
 URL_BASE                = "http://%s:%s/%s/"
 

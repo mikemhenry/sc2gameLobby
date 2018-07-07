@@ -32,7 +32,9 @@ now = time.time
 ################################################################################
 def run(config, agentCallBack, lobbyTimeout=c.DEFAULT_TIMEOUT, debug=False):
     """PURPOSE: start a starcraft2 process using the defined the config parameters"""
-    FLAGS(sys.argv)
+    FLAGS(sys.argv) # ignore pysc2 command-line handling (eww)
+    log = protocol.logging.logging
+    log.disable(log.CRITICAL) # disable pysc2 logging
     thisPlayer = config.whoAmI()
     createReq = sc_pb.RequestCreateGame( # used to advance to "Init Game" state, when hosting
         realtime    = config.realtime,
@@ -45,7 +47,7 @@ def run(config, agentCallBack, lobbyTimeout=c.DEFAULT_TIMEOUT, debug=False):
         playerObj = PlayerPreGame(player)
         if playerObj.isComputer:
             reqPlayer.difficulty    = playerObj.difficulty.gameValue()
-        reqPlayer.type              = t.PlayerControls(playerObj.control()).gameValue()
+        reqPlayer.type              = t.PlayerControls(playerObj.control).gameValue()
         reqPlayer.race              = playerObj.selectedRace.gameValue()
     interface = sc_pb.InterfaceOptions()
     raw,score,feature,rendered = config.interfaces
@@ -57,7 +59,6 @@ def run(config, agentCallBack, lobbyTimeout=c.DEFAULT_TIMEOUT, debug=False):
     joinReq = sc_pb.RequestJoinGame(options=interface) # SC2APIProtocol.RequestJoinGame
     joinReq.race = thisPlayer.selectedRace.gameValue() # update joinGame request as necessary
     # TODO -- allow host player to be an observer, not just a player w/ race
-    #joinReq.observed_player_id
     gameP, baseP, sharedP = config.ports
     if config.isMultiplayer:
         joinReq.server_ports.game_port  = gameP
@@ -67,8 +68,8 @@ def run(config, agentCallBack, lobbyTimeout=c.DEFAULT_TIMEOUT, debug=False):
         joinReq.client_ports.add(game_port=slaveGP, base_port=slaveBP)
     if debug: print("Starcraft2 game process is launching (fullscreen=%s)."%(config.fullscreen))
     controller  = None # the object that manages the application process
-    finalResult = None # the observed results of the match
-    replayData  = None # complete raw replay data for the match
+    finalResult = rh.playerSurrendered(config) # default to this player losing if somehow a result wasn't acquired normally
+    replayData  = "" # complete raw replay data for the match
     with config.launchApp(fullScreen=config.fullscreen) as controller:
       try:
         getGameState = controller.observe # function that observes what's changed since the prior gameloop(s)
@@ -77,12 +78,7 @@ def run(config, agentCallBack, lobbyTimeout=c.DEFAULT_TIMEOUT, debug=False):
         if debug: print("Starcraft2 is waiting for %d player(s) to join. (%s)"%(config.numAgents, controller.status)) # status: init_game
         playerID = controller.join_game(joinReq).player_id # SC2APIProtocol.RequestJoinGame
         config.updateID(playerID)
-        config.save() # "publish" the configuration file for other procs
-        print("[HOSTGAME] %d %s"%(playerID, config))
-        try:    agentCallBack(config.name) # send the configuration to the controlling agent's pipeline
-        except Exception as e:
-            print("ERROR: agent %s crashed during init: %s (%s)"%(thisPlayer.initCmd, e, type(e)))
-            return (rh.playerCrashed(config), "") # no replay information to get
+        print("[HOSTGAME] joined match as %s"%(thisPlayer))
         startWaitTime = now()
         knownPlayers  = []
         numExpectedPlayers = config.numGameClients # + len(bots) : bots don't need to join; they're run by the host process automatically
@@ -111,13 +107,19 @@ def run(config, agentCallBack, lobbyTimeout=c.DEFAULT_TIMEOUT, debug=False):
                     if p.playerID: continue # ignore players with an already-set playerID
                     if p.type == pTyp and p.selectedRace == rReq: # matched player
                         config.updateID(pID, p)
-                        if debug:   print("%s joined the match."%(p))
+                        print("[HOSTGAME] %s joined the match."%(p))
                         pID = 0 # declare that the player has been identified
                         break
                 if pID: raise c.UknownPlayer("could not match %s %s %s to any "
                     "existing player of %s"%(pID, pTyp, rReq, config.players))
-        if debug: print("all %d player(s) found; game is " # status: init_game
+        if debug: print("all %d player(s) found; game has " # status: init_game
             "started! (%s)"%(numExpectedPlayers, controller.status))
+        config.save() # "publish" the configuration file for other procs
+        try:    agentCallBack(config.name) # send the configuration to the controlling agent's pipeline
+        except Exception as e:
+            print("ERROR: agent %s crashed during init: %s (%s)"%(thisPlayer.initCmd, e, type(e)))
+            return (rh.playerCrashed(config), "") # no replay information to get
+        startWaitTime = now()
         while True:  # wait for game to end while players/bots do their thing
             obs = getGameState()
             result = obs.player_result
@@ -126,30 +128,27 @@ def run(config, agentCallBack, lobbyTimeout=c.DEFAULT_TIMEOUT, debug=False):
                 break
             try:    agentCallBack(obs) # do developer's creative stuff
             except Exception as e:
-                print("ERROR: agent %s crashed during game: %s (%s)"%(thisPlayer.initCmd, e, type(e)))
+                print("%s ERROR: agent callback %s of %s crashed during game: %s"%(type(e), agentCallBack, thisPlayer.initCmd, e))
                 finalResult = rh.playerCrashed(config)
                 break
-        #if config.saveReplayAfterGame:
-        #    replayData = controller.save_replay()
-        #    replay.save(replayData)
-        #    # TODO -- copy/ftp generated replay file to replay processing folder
+            newNow = now() # periodicially acquire the game's replay data (in case of abnormal termination)
+            if newNow - startWaitTime > c.REPLAY_SAVE_FREQUENCY:
+                replayData = controller.save_replay()
+                startWaitTime = newNow
+        replayData = controller.save_replay() # one final attempt to get the complete replay data
         #controller.leave() # the connection to the server process is (cleanly) severed
       except (protocol.ConnectionError, protocol.ProtocolError, remote_controller.RequestError) as e:
-        if debug:   print("%s Connection to game closed (NOT a bug)%s%s"%(type(e), os.linesep, e))
-        else:       print(   "Connection to game host was lost.")
-        finalResult = rh.playerDisconnected(config)
+        if "Status.in_game" in str(e): # state was previously in game and then exited that state
+            finalResult = rh.playerSurrendered(config) # rage quit is losing
+        else:
+            finalResult = rh.playerDisconnected(config)
+            print("%s Connection to game host has ended, even intentionally by agent. Message:%s%s"%(type(e), os.linesep, e))
       except KeyboardInterrupt:
         if debug: print("caught command to forcibly shutdown Starcraft2 host process.")
         finalResult = rh.playerSurrendered(config)
       finally:
-        #config.disable() # if the saved cfg file still exists, always remove it
-        if replayData == None: # only get replayData if not already preset
-            replayData = base64.encodestring(controller.save_replay()).decode() # convert raw bytes into str
+        if replayData: # ensure replay data can be transmitted over http
+            replayData = base64.encodestring(replayData).decode() # convert raw bytes into str
         controller.quit() # force the sc2 application to close
-        #if debug:
-        print("host process has ended")
-    if not finalResult:
-        finalResult = rh.playerSurrendered(config)
-    #if debug: print("finalResult:\n", finalResult)
     return (finalResult, replayData)
 

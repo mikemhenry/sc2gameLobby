@@ -17,8 +17,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
-from cli import main
+VERSION = (0, 6, 0)
 
-if __name__=="__main__":
-    main()
+__version__ = '.'.join(map(str, VERSION))
 
